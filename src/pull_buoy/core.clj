@@ -51,14 +51,17 @@
   ;; create comments on behalf of users but that seems like a lot of effort.
   (format "\"%s\"\n\n--%s" msg author))
 
+(defn trunc-msg [msg]
+  (subs msg 0 (min 20 (count msg))))
+
 (defn create-pull-request-comment [pr comment]
-  (prn (format "Copying Comment %s" (:body comment)))
   (let [{:keys [github-to-base github-to-token github-to-repo]} env]
     (gh-core/with-url github-to-base
       (gh-core/with-defaults {:oauth-token github-to-token}
         (let [[user repo] (clojure.string/split github-to-repo #"/")
               msg (:body comment)
               attributed-msg (authorify msg (get-in comment [:user :login]))]
+          (println (format "  Copying PR comment %s" (:body comment)))
           (pulls/create-comment user repo (:number pr)
                                 (:commit_id comment)
                                 (:path comment)
@@ -66,24 +69,25 @@
                                 attributed-msg {}))))))
 
 (defn create-issue-comment [pr comment]
-  (prn (format "  Copying issue comment: %s..." (subs (:body comment) 0 20)))
   (let [{:keys [github-to-base github-to-token github-to-repo]} env]
     (gh-core/with-url github-to-base
       (gh-core/with-defaults {:oauth-token github-to-token}
         (let [[user repo] (clojure.string/split github-to-repo #"/")
               msg (:body comment)
               attributed-msg (authorify msg (get-in comment [:user :login]))]
+          (println "  Copying Issue comment: " (trunc-msg msg) "...")
           (issues/create-comment user repo (:number pr) attributed-msg {}))))))
 
 
 (defn create-pull-request [pr]
-  (prn (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
   (let [{:keys [github-to-base github-to-token github-to-repo]} env]
     (gh-core/with-url github-to-base
       (gh-core/with-defaults {:oauth-token github-to-token}
         (let [base-branch (gen-branch)
               head-branch (gen-branch)
               [user repo] (clojure.string/split github-to-repo #"/")]
+
+          (println (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
           
           (git/create-reference user repo (:ref base-branch) (get-in pr [:base :sha]) {})
           (git/create-reference user repo (:ref head-branch) (get-in pr [:head :sha]) {})
@@ -102,10 +106,7 @@
           (delete-branch user repo (:name base-branch) {})
           (delete-branch user repo (:name head-branch) {}))))))
 
-
 (defn -main [& args]
   (doseq [pr (pull-requests)]
     (if-not (empty? pr)
       (create-pull-request pr))))
-
-;(-main nil)

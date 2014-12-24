@@ -7,6 +7,6 @@
                  [tentacles "0.2.5"]
                  [environ "1.0.0"]
                  [org.clojure/tools.trace "0.7.8"]]
-  :plugins [[lein-environ "1.0.0"]])
-  ;; :aot [pull-buoy.core]
-  ;; :main pull-buoy.core)
+  :plugins [[lein-environ "1.0.0"]]
+  :aot [pull-buoy.core]
+  :main pull-buoy.core)
