@@ -18,14 +18,6 @@
       (do (println "  Could not find ppgh login for " gh-login " so using default")
           default-oauth))))
 
-(defn add-collaborators [user-map]
-  (let [{:keys [github-to-base github-to-token github-to-repo]} env]
-    (gh-core/with-url github-to-base
-      (doseq [[gh-name [ppgh-name _]] user-map]
-        (repo/add-collaborator "anchambers" "campaign_manager"
-                               ppgh-name
-                               {:oauth-token github-to-token})))))
-
 (defn gen-branch [name]
   (let [name (str "pr-" name)]
     {:name name
@@ -36,6 +28,11 @@
   (gh-core/api-call :delete "repos/%s/%s/git/refs/heads/%s" [user repo branch]
                     options))
 
+(defn unsubsribe [user repo options]
+  (gh-core/api-call :put "repos/%s/%s/subscription" [user repo]
+                    (assoc options
+                      :ignored "true")))
+
 (defn merge-branch
   "Perform a merge"
   [user repo base head msg options]
@@ -43,6 +40,17 @@
             (merge options {:base base
                             :head head
                             :commit_message msg})))
+
+(defn add-collaborators [user-map]
+  (let [{:keys [github-to-base github-to-token github-to-repo]} env
+        [user repo] (clojure.string/split github-to-repo #"/")]
+    (gh-core/with-url github-to-base
+      (doseq [[gh-name [ppgh-name _]] user-map]
+        (repo/add-collaborator "anchambers" "campaign_manager"
+                               ppgh-name
+                               {:oauth-token github-to-token})
+        (unsubsribe user repo {:oauth-token (last (get user-map gh-name))})
+        ))))
 
 (defn from-repo-invoke [method options]
   (let [{:keys [github-from-base github-from-token github-from-repo]} env]
@@ -179,4 +187,3 @@
                     (take-while take-pred))]
       (if-not (empty? pr)
         (create-pull-request pr user-map)))))
-
