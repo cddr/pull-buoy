@@ -6,23 +6,25 @@
             [tentacles.repos :as repo]
             [clojure.pprint :as pp]
             [environ.core :refer [env]]
-            [clojure.tools.reader.edn :as edn])
+            [clojure.tools.reader.edn :as edn]
+            [clojure.tools.cli :refer [parse-opts]])
   (:gen-class))
-
-;; (defn gen-branch []
-;;   (let [sym (gensym)]
-;;     {:name (str sym)
-;;      :ref (str "refs/heads/" sym)}))
-
-(def test-user-map (env :user-map))
 
 (defn find-auth [object path user-map]
   (let [default-oauth (env :github-to-token)
         gh-login (get-in object path)]
     (if (contains? user-map gh-login)
-      (get user-map gh-login)
+      (last (get user-map gh-login))
       (do (println "  Could not find ppgh login for " gh-login " so using default")
           default-oauth))))
+
+(defn add-collaborators [user-map]
+  (let [{:keys [github-to-base github-to-token github-to-repo]} env]
+    (gh-core/with-url github-to-base
+      (doseq [[gh-name [ppgh-name _]] user-map]
+        (repo/add-collaborator "anchambers" "campaign_manager"
+                               ppgh-name
+                               {:oauth-token github-to-token})))))
 
 (defn gen-branch [name]
   (let [name (str "pr-" name)]
@@ -59,7 +61,7 @@
 
 (defn pull-requests []
   (from-repo-invoke pulls/pulls {:state "all",
-                                 ;:sort "created",
+                                 :sort "created",
                                  :all-pages true}))
 
 (defn pull-request [id]
@@ -82,8 +84,8 @@
 
 (defn authorify [object user-map]
   ;; This creates a comment and attributes it to the original author by appending
-  ;; the original message with "--@author". It might be possible to use OAUTH and
-  ;; create comments on behalf of users but that seems like a lot of effort.
+  ;; the original message with "--@author". This allows us to correctly attribute
+  ;; PRs/Comments when the original user does not exist in the new system.
   (if (contains? user-map (get-in object [:user :login]))
     (get-in object [:body])
     (format "\"%s\"\n\n--%s" (get-in object [:body])
@@ -99,10 +101,11 @@
       (let [[user repo] (clojure.string/split github-to-repo #"/")
             msg (authorify comment user-map)]
         (println (format "  Copying PR comment %s" (trunc-msg msg)))
+        (println (format "    oauth: %s" oauth))
         (pulls/create-comment user repo (:number pr)
                               (:commit_id comment)
                               (:path comment)
-                              (:position comment)
+                              (:original_position comment)
                               msg {:oauth-token oauth})))))
 
 (defn create-issue-comment [pr comment user-map]
@@ -150,9 +153,30 @@
         (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
         (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth})))))
 
-(defn -main [& args]
-  (let [user-map (edn/read)]
-    (doseq [pr (pull-requests)]
+(def cli-options
+  [["-f" "--from STARTING-AT" "The first pull request to be copied"
+    :default 1
+    :parse-fn #(edn/read-string %)
+    :validate [#(< 0 % 4000) "Must be an integer between 0 and 4000"]]
+   ["-t" "--to ENDING-AT"     "The last pull request to be copied"
+    :default 4000
+    :parse-fn #(edn/read-string %)
+    :validate [#(< 0 % 4000) "Must be an integer between 0 and 4000"]]])
+
+ (defn -main [& args]
+  (let [user-map (edn/read)
+        {:keys [options]} (parse-opts args cli-options)
+        drop-pred #(not (<= (:from options) (:number %)))
+        take-pred #(not (< (:to options) (:number %)))]
+    
+    ;; ensure all supplied users are added as project collaborators
+    (add-collaborators user-map)
+
+    ;; (pull-requests) returns a lazy sequence so using drop-while/take-while allows
+    ;; us to fetch only what we need from the source github
+    (doseq [pr (->> (pull-requests)
+                    (drop-while drop-pred)
+                    (take-while take-pred))]
       (if-not (empty? pr)
         (create-pull-request pr user-map)))))
 
