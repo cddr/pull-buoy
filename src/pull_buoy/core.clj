@@ -132,35 +132,36 @@
         merger-oauth (find-auth pr [:merged_by :login] user-map)]
 
     (gh-core/with-url github-to-base
-      (let [base-branch (gen-branch (get-in pr [:base :ref]))
-            head-branch (gen-branch (get-in pr [:head :ref]))
-            [user repo] (clojure.string/split github-to-repo #"/")]
+      (gh-core/with-defaults {:throw-exceptions true}
+        (let [base-branch (gen-branch (get-in pr [:base :ref]))
+              head-branch (gen-branch (get-in pr [:head :ref]))
+              [user repo] (clojure.string/split github-to-repo #"/")]
 
-        (println (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
-        (println "  requested by: " requester-oauth)
-        (println "  merged by: " merger-oauth)
-        (println "  base: " (:ref base-branch) " " (get-in pr [:base :sha]))
-        (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
-        
-        (git/create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
-                              {:oauth-token requester-oauth})
-        (git/create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
-                              {:oauth-token requester-oauth})
+          (println (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
+          (println "  requested by: " requester-oauth)
+          (println "  merged by: " merger-oauth)
+          (println "  base: " (:ref base-branch) " " (get-in pr [:base :sha]))
+          (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
 
-        (let [msg (authorify pr user-map)
-              new-pr (pulls/create-pull user repo (:title pr) (:ref base-branch)
-                                        (:ref head-branch) {:body msg
-                                                            :oauth-token requester-oauth})]
-          (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
-            (create-pull-request-comment new-pr comment user-map))
+          (git/create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
+                                {:oauth-token requester-oauth})
+          (git/create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
+                                {:oauth-token requester-oauth})
 
-          (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
-            (create-issue-comment new-pr comment user-map))
+          (let [msg (authorify pr user-map)
+                new-pr (pulls/create-pull user repo (:title pr) (:ref base-branch)
+                                          (:ref head-branch) {:body msg
+                                                              :oauth-token requester-oauth})]
+            (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
+              (create-pull-request-comment new-pr comment user-map))
 
-          (pulls/merge user repo (:number new-pr) {:oauth-token merger-oauth}))
+            (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
+              (create-issue-comment new-pr comment user-map))
 
-        (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
-        (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth})))))
+            (pulls/merge user repo (:number new-pr) {:oauth-token merger-oauth}))
+
+          (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
+          (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))))))
 
 (def cli-options
   [["-f" "--from STARTING-AT" "The first pull request to be copied"
@@ -188,4 +189,3 @@
                     (take-while take-pred))]
       (if-not (empty? pr)
         (create-pull-request (pull-request (:number pr)) user-map)))))
-
