@@ -7,7 +7,8 @@
             [clojure.pprint :as pp]
             [environ.core :refer [env]]
             [clojure.tools.reader.edn :as edn]
-            [clojure.tools.cli :refer [parse-opts]])
+            [clojure.tools.cli :refer [parse-opts]]
+            [clj-http.client :as http])
   (:gen-class))
 
 (defn find-auth [object path user-map]
@@ -46,11 +47,10 @@
         [user repo] (clojure.string/split github-to-repo #"/")]
     (gh-core/with-url github-to-base
       (doseq [[gh-name [ppgh-name _]] user-map]
-        (repo/add-collaborator "anchambers" "campaign_manager"
+        (repo/add-collaborator user repo
                                ppgh-name
                                {:oauth-token github-to-token})
-        (unsubsribe user repo {:oauth-token (last (get user-map gh-name))})
-        ))))
+        (unsubsribe user repo {:oauth-token (last (get user-map gh-name))})))))
 
 (defn from-repo-invoke [method options]
   (let [{:keys [github-from-base github-from-token github-from-repo]} env]
@@ -188,3 +188,4 @@
                     (take-while take-pred))]
       (if-not (empty? pr)
         (create-pull-request (pull-request (:number pr)) user-map)))))
+
