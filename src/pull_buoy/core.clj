@@ -15,7 +15,7 @@
         gh-login (get-in object path)]
     (if (contains? user-map gh-login)
       (last (get user-map gh-login))
-      (do (println "  Could not find ppgh login for " gh-login " so using default")
+      (do (println "  Could not find ppgh login for " gh-login " from " path " so using default")
           default-oauth))))
 
 (defn gen-branch [name]
@@ -130,6 +130,7 @@
   (let [{:keys [github-to-base github-to-token github-to-repo]} env
         requester-oauth (find-auth pr [:user :login] user-map)
         merger-oauth (find-auth pr [:merged_by :login] user-map)]
+
     (gh-core/with-url github-to-base
       (let [base-branch (gen-branch (get-in pr [:base :ref]))
             head-branch (gen-branch (get-in pr [:head :ref]))
@@ -171,7 +172,7 @@
     :parse-fn #(edn/read-string %)
     :validate [#(< 0 % 4000) "Must be an integer between 0 and 4000"]]])
 
- (defn -main [& args]
+(defn -main [& args]
   (let [user-map (edn/read)
         {:keys [options]} (parse-opts args cli-options)
         drop-pred #(not (<= (:from options) (:number %)))
@@ -186,4 +187,4 @@
                     (drop-while drop-pred)
                     (take-while take-pred))]
       (if-not (empty? pr)
-        (create-pull-request pr user-map)))))
+        (create-pull-request (pull-request (:number pr)) user-map)))))
