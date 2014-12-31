@@ -101,53 +101,49 @@
         merger-oauth (find-auth pr [:merged_by :login] user-map)]
 
     (gh-core/with-url github-to-base
-      (gh-core/with-defaults {:throw-exceptions true}
-        (let [base-branch (gen-branch (get-in pr [:base :ref]))
-              head-branch (gen-branch (get-in pr [:head :ref]))
-              [user repo] (clojure.string/split github-to-repo #"/")]
+      (let [base-branch (gen-branch (get-in pr [:base :ref]))
+            head-branch (gen-branch (get-in pr [:head :ref]))
+            [user repo] (clojure.string/split github-to-repo #"/")]
 
-          (println (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
-          (println "  requested by: " requester-oauth)
-          (println "  merged by: " merger-oauth)
-          (println "  base: " (:ref base-branch) " " (get-in pr [:base :sha]))
-          (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
+        (println (format "Copying PR #%s -- %s" (:number pr) (:title pr)))
+        (println "  requested by: " requester-oauth)
+        (println "  merged by: " merger-oauth)
+        (println "  base: " (:ref base-branch) " " (get-in pr [:base :sha]))
+        (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
 
-          (create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
-                                {:oauth-token requester-oauth
-                                 :throw-exceptions true})
-          (create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
-                                {:oauth-token requester-oauth
-                                 :throw-exceptions true})
+        (create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
+                          {:oauth-token requester-oauth})
+        (create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
+                          {:oauth-token requester-oauth})
 
-          (let [msg (authorify pr user-map)
-                new-pr (create-pr user repo (:title pr) (:ref base-branch)
-                                  (:ref head-branch) {:body msg
-                                                      :oauth-token requester-oauth})]
+        (let [msg (authorify pr user-map)
+              new-pr (create-pr user repo (:title pr) (:ref base-branch)
+                                (:ref head-branch) {:body msg
+                                                    :oauth-token requester-oauth})]
 
-            (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
-              (create-pr-comment user repo (:number new-pr)
-                                 (:commit_id comment)
-                                 (:path comment)
-                                 (:original_position comment)
-                                 (authorify comment user-map)
-                                 {:oauth-token (find-auth comment [:user :login] user-map)}))
+          (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
+            (create-pr-comment user repo (:number new-pr)
+                               (:commit_id comment)
+                               (:path comment)
+                               (:original_position comment)
+                               (authorify comment user-map)
+                               {:oauth-token (find-auth comment [:user :login] user-map)}))
 
-            (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
-              (create-issue-comment user repo (:number new-pr)
-                                    (authorify comment user-map)
-                                    {:oauth-token (find-auth comment [:user :login] user-map)}))
+          (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
+            (create-issue-comment user repo (:number new-pr)
+                                  (authorify comment user-map)
+                                  {:oauth-token (find-auth comment [:user :login] user-map)}))
 
-            (let [cleanup (fn []
-                            (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
-                            (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))]
-              (cond
-                (merged? pr) (do
-                               (merge-pr user repo (:number new-pr) {:oauth-token merger-oauth})
-                               (cleanup))
-                (closed? pr) (do
-                               (edit-pr user repo (:number new-pr) {:state "closed"})
-                               (cleanup))))))))))
-
+          (let [cleanup (fn []
+                          (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
+                          (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))]
+            (cond
+              (merged? pr) (do
+                             (merge-pr user repo (:number new-pr) {:oauth-token merger-oauth})
+                             (cleanup))
+              (closed? pr) (do
+                             (edit-pr user repo (:number new-pr) {:state "closed"})
+                             (cleanup)))))))))
 
 (def cli-options
   [["-f" "--from STARTING-AT" "The first pull request to be copied"
