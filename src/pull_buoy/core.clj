@@ -9,7 +9,8 @@
             [clojure.tools.reader.edn :as edn]
             [clojure.tools.cli :refer [parse-opts]]
             [clj-http.client :as http]
-            [throttler.core :refer [fn-throttler]])
+            [throttler.core :refer [fn-throttler]]
+            [clojure.stacktrace :as st])
   (:gen-class))
 
 (defn find-auth [object path user-map]
@@ -112,14 +113,17 @@
           (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
 
           (create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
-                                {:oauth-token requester-oauth})
+                                {:oauth-token requester-oauth
+                                 :throw-exceptions true})
           (create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
-                                {:oauth-token requester-oauth})
+                                {:oauth-token requester-oauth
+                                 :throw-exceptions true})
 
           (let [msg (authorify pr user-map)
                 new-pr (create-pr user repo (:title pr) (:ref base-branch)
                                   (:ref head-branch) {:body msg
                                                       :oauth-token requester-oauth})]
+
             (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
               (create-pr-comment user repo (:number new-pr)
                                  (:commit_id comment)
@@ -143,7 +147,6 @@
                 (closed? pr) (do
                                (edit-pr user repo (:number new-pr) {:state "closed"})
                                (cleanup))))))))))
-
 
 (def cli-options
   [["-f" "--from STARTING-AT" "The first pull request to be copied"
@@ -170,6 +173,12 @@
                     (drop-while drop-pred)
                     (take-while take-pred))]
       (if-not (empty? pr)
-        (create-pull-request (pull-request (:number pr)) user-map)))))
+        (try
+          (create-pull-request (pull-request (:number pr)) user-map)
+          (catch Exception e
+            (do
+              (println "Error when copying PR #" (:number pr))
+              (println "This is likely because it was never merged")
+              (println "")
+              (st/print-stack-trace e))))))))
 
-;(apply -main (clojure.string/split "-f 1 -t 10" #" "))
