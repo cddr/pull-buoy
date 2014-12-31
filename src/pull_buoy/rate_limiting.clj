@@ -9,6 +9,8 @@
 (def add-collaborator (rate-limited repo/add-collaborator))
 (def create-pr-comment (rate-limited pulls/create-comment))
 (def merge-pr (rate-limited pulls/merge))
+(def edit-pr (rate-limited pulls/edit-pull))
+(def create-pr (rate-limited pulls/create-pull))
 (def create-issue-comment (rate-limited issues/create-comment))
 (def create-reference (rate-limited git/create-reference))
 

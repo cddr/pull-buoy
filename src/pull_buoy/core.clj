@@ -88,6 +88,12 @@
 (defn trunc-msg [msg]
   (subs msg 0 (min 20 (count msg))))
 
+(defn merged? [pr]
+  (:merged_at pr))
+
+(defn closed? [pr]
+  (:closed_at pr))
+
 (defn create-pull-request [pr user-map]
   (let [{:keys [github-to-base github-to-token github-to-repo]} env
         requester-oauth (find-auth pr [:user :login] user-map)
@@ -111,9 +117,9 @@
                                 {:oauth-token requester-oauth})
 
           (let [msg (authorify pr user-map)
-                new-pr (pulls/create-pull user repo (:title pr) (:ref base-branch)
-                                          (:ref head-branch) {:body msg
-                                                              :oauth-token requester-oauth})]
+                new-pr (create-pr user repo (:title pr) (:ref base-branch)
+                                  (:ref head-branch) {:body msg
+                                                      :oauth-token requester-oauth})]
             (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
               (create-pr-comment user repo (:number new-pr)
                                  (:commit_id comment)
@@ -127,10 +133,17 @@
                                     (authorify msg user-map)
                                     {:oauth-token (find-auth comment [:user :login] user-map)}))
 
-            (merge-pr user repo (:number new-pr) {:oauth-token merger-oauth}))
+            (let [cleanup (fn []
+                            (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
+                            (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))]
+              (cond
+                (merged? pr) (do
+                               (merge-pr user repo (:number new-pr) {:oauth-token merger-oauth})
+                               (cleanup))
+                (closed? pr) (do
+                               (edit-pr user repo (:number new-pr) {:state "closed"})
+                               (cleanup))))))))))
 
-          (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
-          (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))))))
 
 (def cli-options
   [["-f" "--from STARTING-AT" "The first pull request to be copied"
