@@ -8,7 +8,8 @@
             [environ.core :refer [env]]
             [clojure.tools.reader.edn :as edn]
             [clojure.tools.cli :refer [parse-opts]]
-            [clj-http.client :as http])
+            [clj-http.client :as http]
+            [throttler.core :refer [fn-throttler]])
   (:gen-class))
 
 (defn find-auth [object path user-map]
@@ -24,33 +25,18 @@
     {:name name
      :ref (str "refs/heads/" name)}))
 
-;; These two could be added upstream
-(defn delete-branch [user repo branch options]
-  (gh-core/api-call :delete "repos/%s/%s/git/refs/heads/%s" [user repo branch]
-                    options))
-
-(defn unsubsribe [user repo options]
-  (gh-core/api-call :put "repos/%s/%s/subscription" [user repo]
-                    (assoc options
-                      :ignored "true")))
-
-(defn merge-branch
-  "Perform a merge"
-  [user repo base head msg options]
-  (gh-core/api-call :post "repos/%s/%s/merges" [user repo]
-            (merge options {:base base
-                            :head head
-                            :commit_message msg})))
+(load "patch_tentacles")
+(load "rate_limiting")
 
 (defn add-collaborators [user-map]
   (let [{:keys [github-to-base github-to-token github-to-repo]} env
         [user repo] (clojure.string/split github-to-repo #"/")]
     (gh-core/with-url github-to-base
       (doseq [[gh-name [ppgh-name _]] user-map]
-        (repo/add-collaborator user repo
-                               ppgh-name
-                               {:oauth-token github-to-token})
-        (unsubsribe user repo {:oauth-token (last (get user-map gh-name))})))))
+        (add-collaborator user repo
+                          ppgh-name
+                          {:oauth-token github-to-token})
+        (unsubscribe user repo {:oauth-token (last (get user-map gh-name))})))))
 
 (defn from-repo-invoke [method options]
   (let [{:keys [github-from-base github-from-token github-from-repo]} env]
@@ -102,30 +88,6 @@
 (defn trunc-msg [msg]
   (subs msg 0 (min 20 (count msg))))
 
-(defn create-pull-request-comment [pr comment user-map]
-  (let [{:keys [github-to-base github-to-token github-to-repo]} env
-        oauth (find-auth comment [:user :login] user-map)]
-    (gh-core/with-url github-to-base
-      (let [[user repo] (clojure.string/split github-to-repo #"/")
-            msg (authorify comment user-map)]
-        (println (format "  Copying PR comment %s" (trunc-msg msg)))
-        (println (format "    oauth: %s" oauth))
-        (pulls/create-comment user repo (:number pr)
-                              (:commit_id comment)
-                              (:path comment)
-                              (:original_position comment)
-                              msg {:oauth-token oauth})))))
-
-(defn create-issue-comment [pr comment user-map]
-  (let [{:keys [github-to-base github-to-token github-to-repo]} env
-        oauth (find-auth comment [:user :login] user-map)]
-    (gh-core/with-url github-to-base
-      (let [[user repo] (clojure.string/split github-to-repo #"/")
-            msg (authorify comment user-map)]
-        (println "  Copying Issue comment: " (trunc-msg msg) "...")
-        (issues/create-comment user repo (:number pr) msg {:oauth-token oauth})))))
-
-
 (defn create-pull-request [pr user-map]
   (let [{:keys [github-to-base github-to-token github-to-repo]} env
         requester-oauth (find-auth pr [:user :login] user-map)
@@ -143,9 +105,9 @@
           (println "  base: " (:ref base-branch) " " (get-in pr [:base :sha]))
           (println "  head: " (:ref head-branch) " " (get-in pr [:head :sha]))
 
-          (git/create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
+          (create-reference user repo (:ref base-branch) (get-in pr [:base :sha])
                                 {:oauth-token requester-oauth})
-          (git/create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
+          (create-reference user repo (:ref head-branch) (get-in pr [:head :sha])
                                 {:oauth-token requester-oauth})
 
           (let [msg (authorify pr user-map)
@@ -153,12 +115,19 @@
                                           (:ref head-branch) {:body msg
                                                               :oauth-token requester-oauth})]
             (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
-              (create-pull-request-comment new-pr comment user-map))
+              (create-pr-comment user repo (:number new-pr)
+                                 (:commit_id comment)
+                                 (:path comment)
+                                 (:original_position comment)
+                                 (authorify comment user-map)
+                                 {:oauth-token (find-auth comment [:user :login] user-map)}))
 
             (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
-              (create-issue-comment new-pr comment user-map))
+              (create-issue-comment user repo (:number new-pr)
+                                    (authorify msg user-map)
+                                    {:oauth-token (find-auth comment [:user :login] user-map)}))
 
-            (pulls/merge user repo (:number new-pr) {:oauth-token merger-oauth}))
+            (merge-pr user repo (:number new-pr) {:oauth-token merger-oauth}))
 
           (delete-branch user repo (:name base-branch) {:oauth-token merger-oauth})
           (delete-branch user repo (:name head-branch) {:oauth-token merger-oauth}))))))
@@ -189,3 +158,5 @@
                     (take-while take-pred))]
       (if-not (empty? pr)
         (create-pull-request (pull-request (:number pr)) user-map)))))
+
+;(apply -main (clojure.string/split "-f 1 -t 10" #" "))

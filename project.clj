@@ -5,6 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [tentacles "0.3.0"]
+                 [throttler "1.0.0"]
                  [environ "1.0.0"]
                  [org.clojure/tools.trace "0.7.8"]
                  [org.clojure/tools.reader "0.8.13"]
