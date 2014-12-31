@@ -55,7 +55,7 @@
         [:base :sha]]))
 
 (defn pull-requests []
-  (from-repo-invoke pulls/pulls {:state "all",
+  (from-repo-invoke list-pulls {:state "all",
                                  :sort "created",
                                  :all-pages true}))
 
@@ -64,18 +64,8 @@
     (gh-core/with-url github-from-base
       (gh-core/with-defaults {:oauth-token github-from-token}
         (let [[user repo] (clojure.string/split github-from-repo #"/")]
-          (pulls/specific-pull user repo id))))))
+          (get-pull user repo id))))))
 
-
-(defn pull-request-commits [pr]
-  (from-repo-invoke pulls/commits (:number pr)))
-
-(defn pull-request-comments [pr]
-  (concat (from-repo-invoke pulls/comments (:number pr))
-          (from-repo-invoke issues/issue-comments (:number pr))))
-
-(defn commit-comments [sha]
-  (from-repo-invoke repo/specific-commit-comments sha))
 
 (defn authorify [object user-map]
   ;; This creates a comment and attributes it to the original author by appending
@@ -121,7 +111,7 @@
                                 (:ref head-branch) {:body msg
                                                     :oauth-token requester-oauth})]
 
-          (doseq [comment (from-repo-invoke pulls/comments (:number pr))]
+          (doseq [comment (from-repo-invoke get-comments (:number pr))]
             (create-pr-comment user repo (:number new-pr)
                                (:commit_id comment)
                                (:path comment)
@@ -129,7 +119,7 @@
                                (authorify comment user-map)
                                {:oauth-token (find-auth comment [:user :login] user-map)}))
 
-          (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
+          (doseq [comment (from-repo-invoke get-issue-comments (:number pr))]
             (create-issue-comment user repo (:number new-pr)
                                   (authorify comment user-map)
                                   {:oauth-token (find-auth comment [:user :login] user-map)}))
@@ -170,12 +160,6 @@
                     (drop-while drop-pred)
                     (take-while take-pred))]
       (if-not (empty? pr)
-        (try
-          (create-pull-request (pull-request (:number pr)) user-map)
-          (catch Exception e
-            (do
-              (println "Error when copying PR #" (:number pr))
-              (println "This is likely because it was never merged")
-              (println "")
-              (st/print-stack-trace e))))))))
+        (create-pull-request (pull-request (:number pr)) user-map)))))
+
 
