@@ -134,7 +134,7 @@
 
             (doseq [comment (from-repo-invoke issues/issue-comments (:number pr))]
               (create-issue-comment user repo (:number new-pr)
-                                    (authorify msg user-map)
+                                    (authorify comment user-map)
                                     {:oauth-token (find-auth comment [:user :login] user-map)}))
 
             (let [cleanup (fn []
@@ -147,6 +147,7 @@
                 (closed? pr) (do
                                (edit-pr user repo (:number new-pr) {:state "closed"})
                                (cleanup))))))))))
+
 
 (def cli-options
   [["-f" "--from STARTING-AT" "The first pull request to be copied"
